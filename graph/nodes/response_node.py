@@ -37,9 +37,10 @@ def _build_context(state: AgentState) -> str:
 
     if intent == "browse" and not filters and not vehicles:
         summary = get_catalog_summary()
+        from services.data_service import _fmt_price
         parts.append(
             f"المعرض يضم {summary['total']} موتوسيكل متاح. "
-            f"الأسعار تبدأ من {int(summary['price_min']):,} جنيه حتى {int(summary['price_max']):,} جنيه."
+            f"الأسعار تبدأ من {_fmt_price(summary['price_min'])} حتى {_fmt_price(summary['price_max'])}."
         )
 
     if intent == "booking":
@@ -60,7 +61,12 @@ def response_node(state: AgentState) -> dict:
     intent = state.get("intent", "other")
 
     # Build context from fetched data
-    context = _build_context(state)
+    try:
+        context = _build_context(state)
+    except Exception as ctx_err:
+        import traceback
+        traceback.print_exc()
+        context = ""
 
     # System message
     sys_content = BOOKING_PROMPT if intent == "booking" else SYSTEM_PROMPT

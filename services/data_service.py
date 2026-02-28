@@ -1,6 +1,6 @@
 import pandas as pd
 from pathlib import Path
-from typing import Optional
+from typing import Optional, List
 
 DATA_PATH = Path(__file__).parent.parent / "data" / "vehicles.xlsx"
 
@@ -66,7 +66,7 @@ def _vehicle_to_dict(row: pd.Series) -> dict:
     }
 
 
-def get_vehicles(filters: dict = None, limit: int = 6) -> list[dict]:
+def get_vehicles(filters: dict = None, limit: int = 6) -> List[dict]:
     df = _load().copy()
     df = df[df[COL_AVAILABLE] == "متاح"]
 
@@ -98,7 +98,7 @@ def get_vehicles(filters: dict = None, limit: int = 6) -> list[dict]:
     return [_vehicle_to_dict(row) for _, row in df.head(limit).iterrows()]
 
 
-def get_vehicle_by_name(name: str) -> dict | None:
+def get_vehicle_by_name(name: str) -> Optional[dict]:
     df = _load()
     mask = (
         df[COL_NAME_EN].str.lower().str.contains(name.lower(), na=False)
@@ -122,19 +122,50 @@ def get_catalog_summary() -> dict:
     }
 
 
+def _fmt_price(val) -> str:
+    try:
+        return f"{int(val):,} جنيه"
+    except (ValueError, TypeError):
+        return "غير محدد"
+
+
+def _safe(val, default="غير محدد") -> str:
+    """Return string for val, or default for None/NaN."""
+    if val is None:
+        return default
+    try:
+        import math
+        if math.isnan(float(val)):
+            return default
+    except (TypeError, ValueError):
+        pass
+    return str(val)
+
+
+def _has_value(val) -> bool:
+    """True only for non-None, non-NaN values."""
+    if val is None:
+        return False
+    try:
+        import math
+        return not math.isnan(float(val))
+    except (TypeError, ValueError):
+        return bool(val)
+
+
 def format_vehicle_arabic(v: dict) -> str:
     lines = [
-        f"🏍️ *{v['name_ar']}* ({v['name_en']})",
-        f"   الشركة: {v['company']} | الوكيل: {v['agent']}",
-        f"   النوع: {v['type']} | اللون: {v['color'] or 'غير محدد'}",
-        f"   السعر: {int(v['price']):,} جنيه",
-        f"   المحرك: {v['engine_cc'] or 'غير محدد'} | {v['engine_type']} | {v['transmission']}",
-        f"   السرعة القصوى: {v['max_speed']}",
+        f"* {_safe(v['name_ar'])} ({_safe(v['name_en'])})",
+        f"   الشركة: {_safe(v['company'])} | الوكيل: {_safe(v['agent'])}",
+        f"   النوع: {_safe(v['type'])} | اللون: {_safe(v['color'])}",
+        f"   السعر: {_fmt_price(v['price'])}",
+        f"   المحرك: {_safe(v['engine_cc'])} | {_safe(v['engine_type'])} | {_safe(v['transmission'])}",
+        f"   السرعة القصوى: {_safe(v['max_speed'])}",
     ]
-    if v.get("min_down"):
+    if _has_value(v.get("min_down")):
         lines.append(
-            f"   أقل مقدم: {int(v['min_down']):,} جنيه | قسط سنة: {int(v['installment_12']):,} جنيه/شهر"
+            f"   أقل مقدم: {_fmt_price(v['min_down'])} | قسط سنة: {_fmt_price(v['installment_12'])}/شهر"
         )
-    if v.get("notes"):
+    if _has_value(v.get("notes")):
         lines.append(f"   ملاحظات: {v['notes']}")
     return "\n".join(lines)

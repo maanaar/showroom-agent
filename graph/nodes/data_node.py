@@ -23,6 +23,6 @@ def data_node(state: AgentState) -> dict:
             vehicles = get_vehicles(filters, limit=1)
 
     elif intent in ("browse", "filter", "installment"):
-        vehicles = get_vehicles(filters, limit=6)
+        vehicles = get_vehicles(filters, limit=3)
 
     return {"vehicles": vehicles}
