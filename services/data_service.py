@@ -66,7 +66,15 @@ def _vehicle_to_dict(row: pd.Series) -> dict:
     }
 
 
-def get_vehicles(filters: dict = None, limit: int = 6) -> List[dict]:
+_INST_COL = {6: COL_INST_6, 12: COL_INST_12, 18: COL_INST_18, 24: COL_INST_24}
+
+
+def get_vehicles(
+    filters: dict = None,
+    limit: int = 6,
+    sort_by: str = None,
+    ascending: bool = True,
+) -> List[dict]:
     df = _load().copy()
     df = df[df[COL_AVAILABLE] == "متاح"]
 
@@ -87,13 +95,29 @@ def get_vehicles(filters: dict = None, limit: int = 6) -> List[dict]:
         if company:
             df = df[df[COL_COMPANY].str.contains(company, na=False, case=False)]
 
-        max_inst_12 = filters.get("max_installment_12")
-        if max_inst_12:
-            df = df[df[COL_INST_12] <= float(max_inst_12)]
-
         transmission = filters.get("transmission")
         if transmission:
             df = df[df[COL_TRANSMISSION].str.contains(transmission, na=False, case=False)]
+
+        condition = filters.get("condition")
+        if condition:
+            df = df[df[COL_CONDITION].str.contains(condition, na=False, case=False)]
+
+        for months in (6, 12, 18, 24):
+            max_inst = filters.get(f"max_installment_{months}")
+            if max_inst:
+                df = df[df[_INST_COL[months]] <= float(max_inst)]
+
+    col_map = {
+        "price": COL_PRICE,
+        "installment_6": COL_INST_6,
+        "installment_12": COL_INST_12,
+        "installment_18": COL_INST_18,
+        "installment_24": COL_INST_24,
+        "engine_cc": COL_ENGINE_CC,
+    }
+    if sort_by and sort_by in col_map:
+        df = df.sort_values(col_map[sort_by], ascending=ascending, na_position="last")
 
     return [_vehicle_to_dict(row) for _, row in df.head(limit).iterrows()]
 
