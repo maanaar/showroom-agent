@@ -13,3 +13,4 @@ class AgentState(TypedDict):
     booking_stage: Optional[str]                 # None | collecting_info | confirmed
     response: Optional[str]                      # final response to send back
     recommendations: List[str]                   # suggested follow-up questions
+    complaint_saved: Optional[bool]              # True if complaint was persisted to DB

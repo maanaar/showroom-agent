@@ -13,13 +13,14 @@ SYSTEM_PROMPT = """أنت مساعد ذكي في معرض "أيمن بدر" لل
 
 أرجع JSON فقط (بدون أي نص إضافي) بالشكل التالي:
 {
-  "intent": "browse | filter | details | installment | booking | greeting | other",
+  "intent": "browse | filter | details | installment | compare | booking | complaint | greeting | other",
   "product_type": "motorcycle | scooter | helmet | null",
   "filters": {
     "max_price": <رقم أو null>,
     "min_price": <رقم أو null>,
     "company": "<اسم الشركة أو null>",
-    "vehicle_name": "<اسم الموديل أو null>",
+    "vehicle_name": "<اسم الموديل الأول أو null>",
+    "vehicle_name_2": "<اسم الموديل الثاني للمقارنة أو null>",
     "max_installment_12": <رقم أو null>,
     "transmission": "يدوي | أوتوماتيك | null"
   },
@@ -34,7 +35,9 @@ SYSTEM_PROMPT = """أنت مساعد ذكي في معرض "أيمن بدر" لل
 - filter: يريد تصفية حسب سعر/شركة/قسط
 - details: يسأل عن موديل بعينه
 - installment: يسأل عن التقسيط أو طرق الدفع
+- compare: يريد مقارنة بين موديلين (استخرج vehicle_name و vehicle_name_2)
 - booking: يريد الحجز أو الشراء
+- complaint: يشتكي من منتج أو خدمة أو تجربة سيئة
 - greeting: تحية أو كلام عام
 - other: أسئلة أخرى
 

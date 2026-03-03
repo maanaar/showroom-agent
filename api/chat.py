@@ -4,6 +4,7 @@ from typing import Optional
 
 from graph.agent_graph import get_agent
 from graph.state import AgentState
+from services.db_service import upsert_client
 
 router = APIRouter()
 
@@ -35,6 +36,7 @@ def _get_or_create_session(user_id: str) -> dict:
             "booking_stage": None,
             "response": None,
             "recommendations": [],
+            "complaint_saved": None,
         }
     return _sessions[user_id]
 
@@ -49,6 +51,21 @@ async def chat(request: ChatRequest):
 
     # Persist updated state for this user
     _sessions[request.user_id] = result
+
+    # Persist client record to SQLite (fire-and-forget; errors are non-fatal)
+    try:
+        lead = result.get("lead", {})
+        phone = lead.get("phone") or request.user_id
+        upsert_client(
+            phone_number=phone,
+            name=lead.get("name"),
+            last_user_reply=request.message,
+            last_bot_reply=result.get("response", ""),
+            last_bot_reply_type=result.get("intent", "other"),
+            has_purchased=result.get("booking_stage") == "confirmed",
+        )
+    except Exception:
+        pass
 
     return ChatResponse(
         response=result.get("response", ""),

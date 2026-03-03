@@ -10,5 +10,8 @@ python-dotenv>=1.0.0
 huggingface_hub>=0.25.0
 langchain_ollama>=0.3.10
 pytest>=26.0.1
+requests
+httpx
+openpyxl
 numpy>=1.26.0
 # Vector search: requires `ollama pull nomic-embed-text` before first use

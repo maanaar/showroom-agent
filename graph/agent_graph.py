@@ -5,6 +5,8 @@ from graph.nodes.intent_node import intent_node
 from graph.nodes.motorcycle_node import motorcycle_node
 from graph.nodes.scooter_node import scooter_node
 from graph.nodes.helmet_node import helmet_node
+from graph.nodes.complaint_node import complaint_node
+from graph.nodes.compare_node import compare_node
 from graph.nodes.response_node import response_node
 
 # Intents that require data fetching before response
@@ -15,6 +17,12 @@ def _route_after_intent(state: AgentState) -> str:
     """Route to the correct category node, or straight to response for greeting/booking/other."""
     intent = state.get("intent", "other")
     product_type = state.get("product_type")  # motorcycle | scooter | helmet | None
+
+    if intent == "complaint":
+        return "complaint"
+
+    if intent == "compare":
+        return "compare"
 
     if intent not in DATA_INTENTS:
         return "response"
@@ -36,6 +44,8 @@ def build_graph():
     graph.add_node("motorcycle", motorcycle_node)
     graph.add_node("scooter", scooter_node)
     graph.add_node("helmet", helmet_node)
+    graph.add_node("complaint", complaint_node)
+    graph.add_node("compare", compare_node)
     graph.add_node("response", response_node)
 
     # Entry
@@ -49,6 +59,8 @@ def build_graph():
             "motorcycle": "motorcycle",
             "scooter": "scooter",
             "helmet": "helmet",
+            "complaint": "complaint",
+            "compare": "compare",
             "response": "response",
         },
     )
@@ -57,6 +69,8 @@ def build_graph():
     graph.add_edge("motorcycle", "response")
     graph.add_edge("scooter", "response")
     graph.add_edge("helmet", "response")
+    graph.add_edge("complaint", "response")
+    graph.add_edge("compare", "response")
 
     # Response is terminal
     graph.add_edge("response", END)
