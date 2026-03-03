@@ -62,3 +62,5 @@ async def reset_session(user_id: str):
     """Clear conversation history for a user."""
     _sessions.pop(user_id, None)
     return {"status": "ok", "message": f"Session for {user_id} cleared."}
+
+
