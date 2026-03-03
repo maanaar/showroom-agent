@@ -64,7 +64,7 @@ def _print_json_block(label: str, obj):
     print(_c("  └" + "─" * 50, DIM))
 
 
-def _print_intent(intent: str, product_type: str | None):
+def _print_intent(intent: str, product_type: "str | None"):
     colour = GREEN if intent not in ("other", None) else YELLOW
     pt = f" | product_type: {product_type}" if product_type else ""
     print(_c(f"\n  [INTENT]  {intent}{pt}", colour, BOLD))

@@ -1,12 +1,12 @@
 """
-Intent Node: Qwen (local Ollama) classifies the user message into intent, product_type, and filters.
+Intent Node: Gemini Flash (via OpenRouter) classifies the user message into intent, product_type, and filters.
 """
 import json
 import re
 from langchain_core.messages import HumanMessage, SystemMessage
 
 from graph.state import AgentState
-from llm.qwen import get_llm
+from llm.gemini import get_gemini
 
 SYSTEM_PROMPT = """أنت مساعد ذكي في معرض "أيمن بدر" للموتوسيكلات والاكسسوارات.
 مهمتك تحليل رسالة العميل واستخراج النية والمعلومات المطلوبة.
@@ -31,15 +31,22 @@ SYSTEM_PROMPT = """أنت مساعد ذكي في معرض "أيمن بدر" لل
 }
 
 تعريف النوايا:
-- browse: يريد تصفح المنتجات عموماً
-- filter: يريد تصفية حسب سعر/شركة/قسط
-- details: يسأل عن موديل بعينه
-- installment: يسأل عن التقسيط أو طرق الدفع
+- browse: يريد تصفح المنتجات عموماً أو يسأل "عندكم ايه" أو "ايه الموجود" أو "آخر حاجة نزلت" أو "أحدث موديل"
+- filter: يريد تصفية حسب سعر/شركة/قسط أو يحدد معايير معينة (مثلاً "مناسب للسن الصغير" أو "أرخص حاجة")
+- details: يسأل عن موديل بعينه بالاسم تحديداً (مثل "كلمني عن jet x" أو "مواصفات هاوجي k4")
+- installment: يسأل عن التقسيط أو طرق الدفع أو الأقساط
 - compare: يريد مقارنة بين موديلين (استخرج vehicle_name و vehicle_name_2)
-- booking: يريد الحجز أو الشراء
+- booking: يريد الحجز أو الشراء أو يقول "عايز أشتري"
 - complaint: يشتكي من منتج أو خدمة أو تجربة سيئة
 - greeting: تحية أو كلام عام
-- other: أسئلة أخرى
+- other: أسئلة عامة ليس لها علاقة مباشرة بمنتج محدد (مثل: عروض، مواعيد، فروع، زيوت، اكسسوارات، خدمة ما بعد البيع)
+
+قواعد مهمة:
+- إذا ذكر العميل منتج غير متوفر في الكتالوج (زيوت، اكسسوارات، قطع غيار) → intent = "other" حتى لو ذكر اسم موديل
+- إذا سأل عن عروض أو تخفيضات بدون ذكر منتج → intent = "other"
+- إذا سأل عن مواعيد أو فروع أو عنوان → intent = "other"
+- "آخر حاجة نزلت" أو "أحدث موديل" بدون ذكر اسم = browse وليس details
+- details فقط لما يذكر اسم الموديل صراحة
 
 تعريف نوع المنتج:
 - motorcycle: موتوسيكل / دراجة نارية
@@ -49,7 +56,7 @@ SYSTEM_PROMPT = """أنت مساعد ذكي في معرض "أيمن بدر" لل
 
 
 def intent_node(state: AgentState) -> dict:
-    llm = get_llm()
+    llm = get_gemini()
     message = state["current_message"]
 
     messages = [
