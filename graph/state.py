@@ -14,3 +14,4 @@ class AgentState(TypedDict):
     response: Optional[str]                      # final response to send back
     recommendations: List[str]                   # suggested follow-up questions
     complaint_saved: Optional[bool]              # True if complaint was persisted to DB
+    usage: Optional[Dict[str, int]]              # LLM token counts {input, output, total}

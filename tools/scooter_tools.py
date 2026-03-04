@@ -1,5 +1,6 @@
 import json
 import math
+from typing import Optional
 from langchain_core.tools import tool
 from services.data_service import get_vehicles, get_vehicle_by_name
 
@@ -19,10 +20,10 @@ def _to_json(vehicles: list) -> str:
 
 @tool
 def search_scooters(
-    max_price: float = None,
-    min_price: float = None,
-    company: str = None,
-    transmission: str = None,
+    max_price: Optional[float] = None,
+    min_price: Optional[float] = None,
+    company: Optional[str] = None,
+    transmission: Optional[str] = None,
     limit: int = 3,
 ) -> str:
     """Search available scooters by filters. Returns a JSON array of matching scooters."""

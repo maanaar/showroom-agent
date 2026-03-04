@@ -21,6 +21,7 @@ class ChatResponse(BaseModel):
     response: str
     intent: Optional[str] = None
     vehicles: list = []
+    usage: dict = {}
 
 
 def _get_or_create_session(user_id: str) -> dict:
@@ -37,6 +38,7 @@ def _get_or_create_session(user_id: str) -> dict:
             "response": None,
             "recommendations": [],
             "complaint_saved": None,
+            "usage": None,
         }
     return _sessions[user_id]
 
@@ -71,6 +73,7 @@ async def chat(request: ChatRequest):
         response=result.get("response", ""),
         intent=result.get("intent"),
         vehicles=result.get("vehicles", []),
+        usage=result.get("usage") or {},
     )
 
 

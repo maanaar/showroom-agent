@@ -14,4 +14,6 @@ requests
 httpx
 openpyxl
 numpy>=1.26.0
+dotenv
+langchain_openai
 # Vector search: requires `ollama pull nomic-embed-text` before first use

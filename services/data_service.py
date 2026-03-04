@@ -1,3 +1,5 @@
+import re
+import math
 import pandas as pd
 from pathlib import Path
 from typing import Optional, List
@@ -122,12 +124,46 @@ def get_vehicles(
     return [_vehicle_to_dict(row) for _, row in df.head(limit).iterrows()]
 
 
+def _normalize(s: str) -> str:
+    """Lowercase and strip all non-alphanumeric characters."""
+    return re.sub(r"[^a-z0-9\u0600-\u06ff]", "", s.lower())
+
+
 def get_vehicle_by_name(name: str) -> Optional[dict]:
+    """Three-tier search (case-insensitive):
+    1. Exact consecutive substring in English or Arabic name.
+    2. Every word in the query appears somewhere in the English name.
+    3. Normalized match (strip punctuation/spaces then substring check).
+    """
     df = _load()
+    q = name.lower().strip()
+
+    # Tier 1 — consecutive substring (handles "jet 14" → "jet 14")
     mask = (
-        df[COL_NAME_EN].str.lower().str.contains(name.lower(), na=False)
-        | df[COL_NAME_AR].str.contains(name, na=False)
+        df[COL_NAME_EN].str.lower().str.contains(q, na=False, regex=False)
+        | df[COL_NAME_AR].str.contains(name.strip(), na=False, regex=False)
     )
+
+    # Tier 2 — every query word appears as a whole token in the English name OR company column
+    # Uses token-level matching so "st" won't match inside "rooster"
+    if not mask.any():
+        words = q.split()
+        if words:
+            def _token_match(row):
+                name_tokens = set(re.split(r'\W+', str(row[COL_NAME_EN]).lower()))
+                company_tokens = set(re.split(r'\W+', str(row[COL_COMPANY]).lower()))
+                all_tokens = name_tokens | company_tokens
+                return all(w in all_tokens for w in words)
+            mask = df.apply(_token_match, axis=1)
+
+    # Tier 3 — normalized (strip spaces/punctuation: "jet14" → "jet14" in "jet 14")
+    if not mask.any():
+        q_norm = _normalize(q)
+        if q_norm:
+            mask = df[COL_NAME_EN].apply(
+                lambda cell: q_norm in _normalize(str(cell)) if cell else False
+            )
+
     result = df[mask]
     if not result.empty:
         return _vehicle_to_dict(result.iloc[0])
@@ -144,6 +180,55 @@ def get_catalog_summary() -> dict:
         "price_min": float(available[COL_PRICE].min()),
         "price_max": float(available[COL_PRICE].max()),
     }
+
+
+def _clean_val(val):
+    """Replace NaN floats with None so dicts are JSON-safe."""
+    if isinstance(val, float) and math.isnan(val):
+        return None
+    return val
+
+
+def get_price_spread(filters: dict = None, count: int = 5) -> List[dict]:
+    """Return `count` vehicles evenly spread across the price range.
+
+    Always includes the cheapest and the most expensive so the caller
+    gets a representative sample rather than the same top-N rows every time.
+    """
+    df = _load().copy()
+    df = df[df[COL_AVAILABLE] == "متاح"]
+
+    if filters:
+        vtype = filters.get("type")
+        if vtype:
+            df = df[df[COL_TYPE].str.contains(vtype, na=False, case=False)]
+        company = filters.get("company")
+        if company:
+            df = df[df[COL_COMPANY].str.contains(company, na=False, case=False)]
+        max_price = filters.get("max_price")
+        if max_price is not None:
+            df = df[df[COL_PRICE] <= float(max_price)]
+        min_price = filters.get("min_price")
+        if min_price is not None:
+            df = df[df[COL_PRICE] >= float(min_price)]
+
+    df = df.dropna(subset=[COL_PRICE]).sort_values(COL_PRICE).reset_index(drop=True)
+
+    if df.empty:
+        return []
+    if len(df) <= count:
+        return [
+            {k: _clean_val(v) for k, v in _vehicle_to_dict(df.iloc[i]).items()}
+            for i in range(len(df))
+        ]
+
+    # Evenly spaced indices: 0, ..., len-1  → cheapest + spread + most expensive
+    step = (len(df) - 1) / (count - 1)
+    indices = sorted({round(i * step) for i in range(count)})
+    return [
+        {k: _clean_val(v) for k, v in _vehicle_to_dict(df.iloc[i]).items()}
+        for i in indices
+    ]
 
 
 def _fmt_price(val) -> str:

@@ -7,13 +7,21 @@ from graph.state import AgentState
 from llm.gemini import get_gemini
 from services.data_service import _fmt_price, _safe, _has_value
 
-SYSTEM_PROMPT = """أنت مساعد مبيعات محترف في معرض "أيمن بدر" للموتوسيكلات والاكسسوارات.
+SHOWROOM_INFO = """معلومات المعرض:
+- الاسم: آي بايكو (ibyco) للموتوسيكلات والإكسسوارات
+- العنوان: ١٢ش ٣٠٢ متفرع من بهاء الدين الغتورى، سموحه، الإسكندرية
+- المواعيد: كل يوم من ٢ ظهراً إلى ١١ مساءً — عدا الجمعة إجازة رسمية
+- واتساب / رسايل الصفحة: 01505989502 — 01505989506"""
+
+SYSTEM_PROMPT = """أنت مساعد مبيعات محترف في معرض "آي بايكو" (ibyco) للموتوسيكلات والإكسسوارات.
 اتكلم بالمصري — لغة مهنية ومحترمة لكن طبيعية ومش متكلفة. زي موظف مبيعات شاطر بيكلم عميل مهم.
 عند عرض المنتجات، رتب المعلومات بشكل واضح ومنظم.
 ماتذكرش أي معلومات مش موجودة في البيانات اللي قدامك.
 لو مفيش حاجة تناسب العميل، وضحله ده بأسلوب لطيف.
 
-هدفك دايماً تشجع العميل يزور المعرض أو يحجز موعد — اختم كل رد بدعوة مهذبة للزيارة أو التواصل.
+هدفك دايماً تشجع العميل يزور المعرض أو يتواصل معانا — اختم كل رد بدعوة مهذبة للزيارة أو التواصل.
+
+""" + SHOWROOM_INFO + """
 
 معلومات مهمة:
 - أنظمة التقسيط المتاحة: 6 أو 12 أو 18 أو 24 شهر بس. لو العميل سأل عن مدة تانية، وضحله إنها مش متاحة واقترحله الأقرب.
@@ -22,10 +30,12 @@ SYSTEM_PROMPT = """أنت مساعد مبيعات محترف في معرض "أي
 - لو سأل عن "أحدث موديل" اعرضله آخر المنتجات وأكدله إن المعرض بيحدّث الكتالوج باستمرار.
 - خلي ردودك مختصرة ومفيدة."""
 
-BOOKING_PROMPT = """أنت مساعد مبيعات محترف في معرض "أيمن بدر". العميل عايز يحجز أو يزور المعرض.
+BOOKING_PROMPT = """أنت مساعد مبيعات محترف في معرض "آي بايكو" (ibyco). العميل عايز يحجز أو يزور المعرض.
 اتكلم بالمصري — لغة مهنية ومحترمة لكن طبيعية.
 لو ماذكرش اسمه ورقم تليفونه لسه، اطلبهم منه بأسلوب مهذب عشان ننسقله الموعد.
-لو ذكرهم، طمّنه إن فريق المعرض هيتواصل معاه في أقرب وقت لتحديد الموعد أو إتمام الصفقة."""
+لو ذكرهم، طمّنه إن فريق المعرض هيتواصل معاه في أقرب وقت لتحديد الموعد أو إتمام الصفقة.
+
+""" + SHOWROOM_INFO
 
 
 def _format_vehicle(v: dict) -> str:
@@ -120,9 +130,17 @@ def response_node(state: AgentState) -> dict:
 
     messages.append(HumanMessage(content=message))
 
+    usage = {}
     try:
         result = llm.invoke(messages)
         response_text = result.content.strip()
+        meta = getattr(result, "usage_metadata", None) or getattr(result, "response_metadata", {}).get("token_usage", {})
+        if meta:
+            usage = {
+                "input_tokens":  meta.get("input_tokens")  or meta.get("prompt_tokens", 0),
+                "output_tokens": meta.get("output_tokens") or meta.get("completion_tokens", 0),
+                "total_tokens":  meta.get("total_tokens", 0),
+            }
     except Exception as e:
         response_text = f"عذراً، حدث خطأ: {e}"
 
@@ -143,4 +161,5 @@ def response_node(state: AgentState) -> dict:
         "response": response_text,
         "conversation_history": updated_history,
         "booking_stage": booking_stage,
+        "usage": usage,
     }

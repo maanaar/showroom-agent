@@ -84,6 +84,16 @@ def _print_vehicles(vehicles: list):
         print(f"    {i}. {name}  —  {price_str}{inst_str}")
 
 
+def _print_usage(usage: dict):
+    if not usage:
+        print(_c("  [TOKENS]  (not reported)", DIM))
+        return
+    inp  = usage.get("input_tokens",  0)
+    out  = usage.get("output_tokens", 0)
+    tot  = usage.get("total_tokens",  inp + out)
+    print(_c(f"\n  [TOKENS]  in={inp}  out={out}  total={tot}", CYAN))
+
+
 def _print_response(text: str):
     print(_c("\n  [RESPONSE]", BOLD, GREEN))
     wrapped = textwrap.fill(text, width=65, initial_indent="    ", subsequent_indent="    ")
@@ -213,10 +223,12 @@ def run_all(show_raw_json: bool = False):
             product_type  = None  # not returned by API; intent covers it
             vehicles      = body.get("vehicles", [])
             response_text = body.get("response", "")
+            usage         = body.get("usage", {})
 
             _print_intent(intent, product_type)
             _print_vehicles(vehicles)
             _print_response(response_text)
+            _print_usage(usage)
 
             if show_raw_json:
                 _print_raw_json(body)
@@ -225,13 +237,14 @@ def run_all(show_raw_json: bool = False):
             expected = tc.get("expected_intent")
             intent_ok = (intent == expected) or (expected is None)
             response_ok = bool(response_text.strip())
+            total_tok = usage.get("total_tokens", 0)
 
             status_line = (
                 _c(f"  ✔ PASS", GREEN, BOLD)
                 if intent_ok and response_ok
                 else _c(f"  ✘ WARN  (expected intent={expected}, got {intent})", YELLOW, BOLD)
             )
-            print(f"\n{status_line}   [{elapsed:.1f}s]")
+            print(f"\n{status_line}   [{elapsed:.1f}s]  tokens={total_tok or '?'}")
 
             if intent_ok and response_ok:
                 passed += 1
@@ -246,6 +259,7 @@ def run_all(show_raw_json: bool = False):
                 "vehicles": len(vehicles),
                 "has_response": response_ok,
                 "elapsed_s": round(elapsed, 1),
+                "tokens": total_tok,
             })
 
         except Exception as exc:
@@ -264,26 +278,29 @@ def run_all(show_raw_json: bool = False):
     print(_c("═" * 70, CYAN))
     print(_c("  SUMMARY", BOLD, CYAN))
     print(_c("═" * 70, CYAN))
-    print(f"  {'#':<4} {'Label':<28} {'Intent':<14} {'Exp':<14} {'Veh':>4} {'Time':>6}")
+    print(f"  {'#':<4} {'Label':<26} {'Intent':<13} {'Exp':<13} {'Veh':>3} {'Tok':>5} {'Time':>6}")
     _divider()
     for r in results:
         err = r.get("error")
         if err:
-            row = f"  {r['n']:<4} {r['label']:<28} {'ERROR':<14} {'—':<14} {'—':>4} {r['elapsed_s']:>5}s"
+            row = f"  {r['n']:<4} {r['label']:<26} {'ERROR':<13} {'—':<13} {'—':>3} {'—':>5} {r['elapsed_s']:>5}s"
             print(_c(row, RED))
         else:
             match = r["intent"] == r["expected"]
             colour = GREEN if match and r["has_response"] else YELLOW
+            tok_str = str(r.get("tokens") or "?")
             row = (
-                f"  {r['n']:<4} {r['label']:<28} {r['intent']:<14}"
-                f" {r['expected']:<14} {r['vehicles']:>4} {r['elapsed_s']:>5}s"
+                f"  {r['n']:<4} {r['label']:<26} {r['intent']:<13}"
+                f" {r['expected']:<13} {r['vehicles']:>3} {tok_str:>5} {r['elapsed_s']:>5}s"
             )
             print(_c(row, colour))
 
     _divider()
     total = passed + failed
+    total_tokens = sum(r.get("tokens") or 0 for r in results if not r.get("error"))
     print(f"\n  {_c(passed, GREEN, BOLD)} / {total} passed   "
-          f"{_c(failed, RED, BOLD)} / {total} with warnings/errors\n")
+          f"{_c(failed, RED, BOLD)} / {total} with warnings/errors   "
+          f"total tokens: {_c(total_tokens, CYAN)}\n")
 
 
 # ── Entry point ───────────────────────────────────────────────────────────────
