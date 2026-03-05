@@ -1,18 +1,18 @@
 # -*- coding: utf-8 -*-
 """
-Manual test runner for the 13 showroom-agent test cases.
+Manual test runner for showroom-agent test cases.
 
 Run from the showroom-agent directory:
-    python tests/run_test_cases.py
-
-Requires Ollama running at http://localhost:11434 with qwen3:4b pulled.
+    python tests/run_test_cases.py          # all tests
+    python tests/run_test_cases.py --json   # include raw JSON blocks
+    python tests/run_test_cases.py --only installment  # filter by label keyword
 """
 import sys
 import time
 import json
 import pathlib
 import textwrap
-import requests as _requests
+
 
 sys.path.insert(0, str(pathlib.Path(__file__).parent.parent))
 sys.stdout.reconfigure(encoding="utf-8", errors="replace")
@@ -36,12 +36,6 @@ def _c(text, *codes):
 
 
 # ── Helpers ───────────────────────────────────────────────────────────────────
-
-def _ollama_running() -> bool:
-    try:
-        return _requests.get("http://localhost:11434", timeout=2).status_code < 500
-    except Exception:
-        return False
 
 
 def _divider(char="─", width=70):
@@ -77,21 +71,36 @@ def _print_vehicles(vehicles: list):
     print(_c(f"\n  [VEHICLES] {len(vehicles)} found:", BOLD))
     for i, v in enumerate(vehicles, 1):
         name = v.get("name_ar") or v.get("name_en") or "?"
-        price = v.get("price")
-        price_str = f"{int(price):,} ج" if price and str(price) != "None" else "—"
-        inst = v.get("installment_12")
-        inst_str = f"  |  قسط 12ش: {int(inst):,} ج/ش" if inst and str(inst) != "None" else ""
-        print(f"    {i}. {name}  —  {price_str}{inst_str}")
+        # Custom installment calculation result
+        if v.get("monthly_payment") is not None and v.get("months"):
+            months  = v.get("months")
+            monthly = v.get("monthly_payment", 0)
+            total   = v.get("total_repayment", 0)
+            rate    = v.get("interest_rate_pct", 0)
+            print(
+                f"    {i}. {name}  —  {months}ش"
+                f"  |  فائدة: {rate}%"
+                f"  |  قسط/ش: {int(monthly):,} ج"
+                f"  |  إجمالي: {int(total):,} ج"
+            )
+        else:
+            price = v.get("price")
+            price_str = f"{int(price):,} ج" if price and str(price) != "None" else "—"
+            inst = v.get("installment_12")
+            inst_str = f"  |  قسط 12ش: {int(inst):,} ج/ش" if inst and str(inst) != "None" else ""
+            print(f"    {i}. {name}  —  {price_str}{inst_str}")
 
 
 def _print_usage(usage: dict):
     if not usage:
         print(_c("  [TOKENS]  (not reported)", DIM))
         return
-    inp  = usage.get("input_tokens",  0)
-    out  = usage.get("output_tokens", 0)
-    tot  = usage.get("total_tokens",  inp + out)
-    print(_c(f"\n  [TOKENS]  in={inp}  out={out}  total={tot}", CYAN))
+    inp      = usage.get("input_tokens",   0)
+    out      = usage.get("output_tokens",  0)
+    tot      = usage.get("total_tokens",   inp + out)
+    thinking = usage.get("thinking_tokens", 0)
+    think_str = f"  thinking={thinking}" if thinking else ""
+    print(_c(f"\n  [TOKENS]  in={inp}  out={out}  total={tot}{think_str}", CYAN))
 
 
 def _print_response(text: str):
@@ -199,19 +208,110 @@ TEST_CASES = [
         "message": "انا اشتريت سكوتر منكم من شهر عايز الزيت المناسب ليه؟",
         "expected_intent": "other",
     },
+
+    # ── Custom installment calculation ────────────────────────────────────────
+    {
+        "id": "tc14",
+        "label": "تقسيط Jet X على 9 شهور",
+        "message": "عايز أقسط Jet X على 9 شهور — المقدم كام والقسط الشهري هيبقى كام؟",
+        "expected_intent": "installment",
+    },
+    {
+        "id": "tc15",
+        "label": "تقسيط Jet X على 12 شهر",
+        "message": "لو أقسط Jet X على 12 شهر بدفع كام في الشهر؟",
+        "expected_intent": "installment",
+    },
+    {
+        "id": "tc16",
+        "label": "تقسيط SYM SR على 36 شهر",
+        "message": "هل ينفع أقسط SYM SR 200 على 36 شهر؟ وإيه اللي هدفعه؟",
+        "expected_intent": "installment",
+    },
+    {
+        "id": "tc17",
+        "label": "تقسيط موتو على 18 شهر",
+        "message": "عايز أعرف تقسيط هاوجي k4 على 18 شهر إيه المقدم والقسط الشهري؟",
+        "expected_intent": "installment",
+    },
+    {
+        "id": "tc18",
+        "label": "ميزانية قسط شهري موتو",
+        "message": "عندي ألفين و٥٠٠ قسط شهري — ايه الموتوسيكلات اللي تناسبني على 12 شهر؟",
+        "expected_intent": "installment",
+    },
+
+    # ── Booking + complaint ───────────────────────────────────────────────────
+    {
+        "id": "tc19",
+        "label": "حجز موعد",
+        "message": "عايز أحجز موعد لأجرب الـ Jet X — اسمي محمد وتليفوني 01012345678",
+        "expected_intent": "booking",
+    },
+    {
+        "id": "tc20",
+        "label": "شكوى خدمة",
+        "message": "اشتريت موتوسيكل من عندكم وبعد أسبوع الموتور بدأ يعمل صوت غريب — عايز حل",
+        "expected_intent": "complaint",
+    },
+
+    # ── Helmet ────────────────────────────────────────────────────────────────
+    {
+        "id": "tc21",
+        "label": "تصفح خوذات",
+        "message": "عندكم خوذات ايه؟",
+        "expected_intent": "browse",
+    },
+    {
+        "id": "tc22",
+        "label": "خوذة رخيصة",
+        "message": "عايز خوذة رخيصة تحت ٥٠٠ جنيه",
+        "expected_intent": "filter",
+    },
+
+    # ── Multi-turn: follow-up on previous context ─────────────────────────────
+    {
+        "id": "tc23a",
+        "label": "تصفح موتو (جلسة متعددة)",
+        "message": "عندكم ايه من موتوسيكلات؟",
+        "expected_intent": "browse",
+        "session": "multi_turn_01",
+    },
+    {
+        "id": "tc23b",
+        "label": "تفاصيل بعد التصفح",
+        "message": "كلمني أكتر عن الأرخص واحدة منهم",
+        "expected_intent": "details",
+        "session": "multi_turn_01",   # same session → has context of tc23a
+    },
 ]
 
 
 # ── Runner ────────────────────────────────────────────────────────────────────
 
-def run_all(show_raw_json: bool = False):
+def run_all(show_raw_json: bool = False, only: str = None):
     passed = 0
     failed = 0
     results = []
 
-    for n, tc in enumerate(TEST_CASES, 1):
-        uid = tc["id"]
-        _reset(uid)
+    # Filter by label keyword if --only was passed
+    cases = TEST_CASES
+    if only:
+        cases = [tc for tc in TEST_CASES if only.lower() in tc["label"].lower()
+                 or only.lower() in tc.get("id", "").lower()]
+        if not cases:
+            print(_c(f"  No test cases matching --only '{only}'", YELLOW))
+            return
+
+    # Track which sessions are fresh (multi-turn cases share a session_id)
+    seen_sessions: set = set()
+
+    for n, tc in enumerate(cases, 1):
+        # Use explicit session key if provided, else isolate by test id
+        uid = tc.get("session") or tc["id"]
+        if uid not in seen_sessions:
+            _reset(uid)
+            seen_sessions.add(uid)
         _header(n, tc["message"])
 
         t0 = time.time()
@@ -306,9 +406,6 @@ def run_all(show_raw_json: bool = False):
 # ── Entry point ───────────────────────────────────────────────────────────────
 
 if __name__ == "__main__":
-    if not _ollama_running():
-        print(_c("✘ Ollama is not running at http://localhost:11434 — aborting.", RED, BOLD))
-        sys.exit(1)
-
-    show_raw = "--json" in sys.argv
-    run_all(show_raw_json=show_raw)
+    show_raw  = "--json"  in sys.argv
+    only_kw   = next((sys.argv[i + 1] for i, a in enumerate(sys.argv) if a == "--only" and i + 1 < len(sys.argv)), None)
+    run_all(show_raw_json=show_raw, only=only_kw)

@@ -38,6 +38,8 @@ def _get_or_create_session(user_id: str) -> dict:
             "response": None,
             "recommendations": [],
             "complaint_saved": None,
+            "ask_clarification": None,
+            "intent_usage": None,
             "usage": None,
         }
     return _sessions[user_id]

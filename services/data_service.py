@@ -1,75 +1,42 @@
 import re
 import math
-import pandas as pd
-from pathlib import Path
 from typing import Optional, List
 
-DATA_PATH = Path(__file__).parent.parent / "data" / "vehicles.xlsx"
 
-# Arabic column names
-COL_NAME_EN = "الاسم بالانجليزى"
-COL_NAME_AR = "الاسم بالعربي"
-COL_COMPANY = "الشركة"
-COL_AGENT = "وكيل مصر"
-COL_TYPE = "نوع المركبة"
-COL_PRICE = "سعر البيع"
-COL_ENGINE_CC = "سعة المحرك / القدرة"
-COL_ENGINE_TYPE = "نوع المحرك"
-COL_TRANSMISSION = "ناقل الحركة"
-COL_MAX_SPEED = "السرعة القصوى"
-COL_FUEL = "سعة الوقود/البطارية"
-COL_BRAKES = "الفرامل"
-COL_NOTES = "ملاحظات إضافية"
-COL_DOWN = "اقل مقدم"
-COL_INST_6 = "قسط على 6 شهور"
-COL_INST_12 = "قسط على سنه"
-COL_INST_18 = "قسط على 18 شهر"
-COL_INST_24 = "قسط على سنتين"
-COL_COLOR = "الون"
-COL_AVAILABLE = "متاح/غير متاح"
-COL_CONDITION = "الحاله"
+# ---------------------------------------------------------------------------
+# DB helpers
+# ---------------------------------------------------------------------------
 
-_df: Optional[pd.DataFrame] = None
+def _get_conn():
+    from services.db_service import _get_conn as _db_conn
+    return _db_conn()
 
 
-def _load() -> pd.DataFrame:
-    global _df
-    if _df is None:
-        _df = pd.read_excel(DATA_PATH)
-        # Coerce numeric columns
-        for col in (COL_PRICE, COL_DOWN, COL_INST_6, COL_INST_12, COL_INST_18, COL_INST_24):
-            _df[col] = pd.to_numeric(_df[col], errors="coerce")
-    return _df
-
-
-def _vehicle_to_dict(row: pd.Series) -> dict:
+def _motor_to_dict(row) -> dict:
     return {
-        "name_en": row.get(COL_NAME_EN),
-        "name_ar": row.get(COL_NAME_AR),
-        "company": row.get(COL_COMPANY),
-        "agent": row.get(COL_AGENT),
-        "type": row.get(COL_TYPE),
-        "price": row.get(COL_PRICE),
-        "engine_cc": row.get(COL_ENGINE_CC),
-        "engine_type": row.get(COL_ENGINE_TYPE),
-        "transmission": row.get(COL_TRANSMISSION),
-        "max_speed": row.get(COL_MAX_SPEED),
-        "fuel_capacity": row.get(COL_FUEL),
-        "brakes": row.get(COL_BRAKES),
-        "notes": row.get(COL_NOTES),
-        "min_down": row.get(COL_DOWN),
-        "installment_6": row.get(COL_INST_6),
-        "installment_12": row.get(COL_INST_12),
-        "installment_18": row.get(COL_INST_18),
-        "installment_24": row.get(COL_INST_24),
-        "color": row.get(COL_COLOR),
-        "available": row.get(COL_AVAILABLE),
-        "condition": row.get(COL_CONDITION),
+        "name_en":       row["english_name"],
+        "name_ar":       row["arabic_name"],
+        "company":       row["company"],
+        "agent":         row["agency_name"],
+        "type":          row["moto_type"],
+        "price":         row["price"],
+        "engine_cc":     row["engin_capacity"],
+        "engine_type":   row["engin_type"],
+        "transmission":  row["transmission_type"],
+        "max_speed":     row["max_speed"],
+        "fuel_capacity": row["fule_capacity"],
+        "brakes":        row["brake_type"],
+        "notes":         row["notes"],
+        "color":         row["colors"],
+        "available":     row["is_available"],
+        "condition":     row["status"],
+        "img_url":       row["img_url"],
     }
 
 
-_INST_COL = {6: COL_INST_6, 12: COL_INST_12, 18: COL_INST_18, 24: COL_INST_24}
-
+# ---------------------------------------------------------------------------
+# Vehicle queries
+# ---------------------------------------------------------------------------
 
 def get_vehicles(
     filters: dict = None,
@@ -77,159 +44,247 @@ def get_vehicles(
     sort_by: str = None,
     ascending: bool = True,
 ) -> List[dict]:
-    df = _load().copy()
-    df = df[df[COL_AVAILABLE] == "متاح"]
+    conn = _get_conn()
+    query = "SELECT * FROM motors WHERE is_available = 1"
+    params = []
 
     if filters:
         vtype = filters.get("type")
         if vtype:
-            df = df[df[COL_TYPE].str.contains(vtype, na=False, case=False)]
+            query += " AND moto_type LIKE ?"
+            params.append(f"%{vtype}%")
 
         max_price = filters.get("max_price")
         if max_price:
-            df = df[df[COL_PRICE] <= float(max_price)]
+            query += " AND price <= ?"
+            params.append(float(max_price))
 
         min_price = filters.get("min_price")
         if min_price:
-            df = df[df[COL_PRICE] >= float(min_price)]
+            query += " AND price >= ?"
+            params.append(float(min_price))
 
         company = filters.get("company")
         if company:
-            df = df[df[COL_COMPANY].str.contains(company, na=False, case=False)]
+            query += " AND company LIKE ?"
+            params.append(f"%{company}%")
 
         transmission = filters.get("transmission")
         if transmission:
-            df = df[df[COL_TRANSMISSION].str.contains(transmission, na=False, case=False)]
+            query += " AND transmission_type LIKE ?"
+            params.append(f"%{transmission}%")
 
         condition = filters.get("condition")
         if condition:
-            df = df[df[COL_CONDITION].str.contains(condition, na=False, case=False)]
+            query += " AND status LIKE ?"
+            params.append(f"%{condition}%")
 
-        for months in (6, 12, 18, 24):
-            max_inst = filters.get(f"max_installment_{months}")
-            if max_inst:
-                df = df[df[_INST_COL[months]] <= float(max_inst)]
-
-    col_map = {
-        "price": COL_PRICE,
-        "installment_6": COL_INST_6,
-        "installment_12": COL_INST_12,
-        "installment_18": COL_INST_18,
-        "installment_24": COL_INST_24,
-        "engine_cc": COL_ENGINE_CC,
-    }
+    col_map = {"price": "price", "engine_cc": "engin_capacity"}
     if sort_by and sort_by in col_map:
-        df = df.sort_values(col_map[sort_by], ascending=ascending, na_position="last")
+        direction = "ASC" if ascending else "DESC"
+        query += f" ORDER BY {col_map[sort_by]} {direction}"
 
-    return [_vehicle_to_dict(row) for _, row in df.head(limit).iterrows()]
+    query += f" LIMIT {int(limit)}"
+    rows = conn.execute(query, params).fetchall()
+    return [_motor_to_dict(r) for r in rows]
 
 
 def _normalize(s: str) -> str:
-    """Lowercase and strip all non-alphanumeric characters."""
     return re.sub(r"[^a-z0-9\u0600-\u06ff]", "", s.lower())
 
 
 def get_vehicle_by_name(name: str) -> Optional[dict]:
-    """Three-tier search (case-insensitive):
-    1. Exact consecutive substring in English or Arabic name.
-    2. Every word in the query appears somewhere in the English name.
-    3. Normalized match (strip punctuation/spaces then substring check).
+    """Four-tier search (case-insensitive):
+    1. SQL LIKE — consecutive substring in English or Arabic name.
+    2. ALL query words are whole tokens in English name + company (exact multi-word match).
+    3. MAJORITY (≥2/3) of words match across English + Arabic + company tokens
+       — handles Arabic transliteration like "سيم اس تي" → "Symphony ST".
+    4. Normalized match (strip punctuation/spaces then substring check).
     """
-    df = _load()
+    conn = _get_conn()
     q = name.lower().strip()
 
-    # Tier 1 — consecutive substring (handles "jet 14" → "jet 14")
-    mask = (
-        df[COL_NAME_EN].str.lower().str.contains(q, na=False, regex=False)
-        | df[COL_NAME_AR].str.contains(name.strip(), na=False, regex=False)
-    )
+    # Tier 1 — SQL LIKE
+    rows = conn.execute(
+        "SELECT * FROM motors WHERE LOWER(english_name) LIKE ? OR arabic_name LIKE ?",
+        (f"%{q}%", f"%{name.strip()}%"),
+    ).fetchall()
+    if rows:
+        return _motor_to_dict(rows[0])
 
-    # Tier 2 — every query word appears as a whole token in the English name OR company column
-    # Uses token-level matching so "st" won't match inside "rooster"
-    if not mask.any():
-        words = q.split()
-        if words:
-            def _token_match(row):
-                name_tokens = set(re.split(r'\W+', str(row[COL_NAME_EN]).lower()))
-                company_tokens = set(re.split(r'\W+', str(row[COL_COMPANY]).lower()))
-                all_tokens = name_tokens | company_tokens
-                return all(w in all_tokens for w in words)
-            mask = df.apply(_token_match, axis=1)
+    # Tiers 2–4 load all rows once
+    all_rows = conn.execute("SELECT * FROM motors").fetchall()
 
-    # Tier 3 — normalized (strip spaces/punctuation: "jet14" → "jet14" in "jet 14")
-    if not mask.any():
-        q_norm = _normalize(q)
-        if q_norm:
-            mask = df[COL_NAME_EN].apply(
-                lambda cell: q_norm in _normalize(str(cell)) if cell else False
+    words = q.split()
+    if words:
+        def _all_tokens(row):
+            return (
+                set(re.split(r'\W+', str(row["english_name"]).lower()))
+                | set(re.split(r'\W+', str(row["arabic_name"])))
+                | set(re.split(r'\W+', str(row["company"]).lower()))
             )
 
-    result = df[mask]
-    if not result.empty:
-        return _vehicle_to_dict(result.iloc[0])
+        # Tier 2 — ALL words match (precise)
+        for row in all_rows:
+            if all(w in _all_tokens(row) for w in words):
+                return _motor_to_dict(row)
+
+        # Tier 3 — MAJORITY match (≥2/3) for transliterated Arabic queries
+        threshold = max(1, math.ceil(len(words) * 2 / 3))
+        for row in all_rows:
+            toks = _all_tokens(row)
+            if sum(1 for w in words if w in toks) >= threshold:
+                return _motor_to_dict(row)
+
+    # Tier 4 — normalized substring
+    q_norm = _normalize(q)
+    if q_norm:
+        for row in all_rows:
+            if q_norm in _normalize(str(row["english_name"])):
+                return _motor_to_dict(row)
+
     return None
 
 
 def get_catalog_summary() -> dict:
-    df = _load()
-    available = df[df[COL_AVAILABLE] == "متاح"]
+    conn = _get_conn()
+    rows = conn.execute(
+        "SELECT moto_type, company, price FROM motors WHERE is_available = 1"
+    ).fetchall()
+
+    types     = {}
+    companies = {}
+    prices    = []
+    for r in rows:
+        types[r["moto_type"]]   = types.get(r["moto_type"], 0) + 1
+        companies[r["company"]] = companies.get(r["company"], 0) + 1
+        if r["price"] is not None:
+            prices.append(r["price"])
+
     return {
-        "total": int(len(available)),
-        "types": available[COL_TYPE].value_counts().to_dict(),
-        "companies": available[COL_COMPANY].value_counts().to_dict(),
-        "price_min": float(available[COL_PRICE].min()),
-        "price_max": float(available[COL_PRICE].max()),
+        "total":     len(rows),
+        "types":     types,
+        "companies": companies,
+        "price_min": min(prices) if prices else 0,
+        "price_max": max(prices) if prices else 0,
     }
 
 
-def _clean_val(val):
-    """Replace NaN floats with None so dicts are JSON-safe."""
-    if isinstance(val, float) and math.isnan(val):
-        return None
-    return val
-
-
 def get_price_spread(filters: dict = None, count: int = 5) -> List[dict]:
-    """Return `count` vehicles evenly spread across the price range.
-
-    Always includes the cheapest and the most expensive so the caller
-    gets a representative sample rather than the same top-N rows every time.
-    """
-    df = _load().copy()
-    df = df[df[COL_AVAILABLE] == "متاح"]
+    """Return `count` vehicles evenly spread across the price range."""
+    conn = _get_conn()
+    query  = "SELECT * FROM motors WHERE is_available = 1 AND price IS NOT NULL"
+    params = []
 
     if filters:
         vtype = filters.get("type")
         if vtype:
-            df = df[df[COL_TYPE].str.contains(vtype, na=False, case=False)]
+            query += " AND moto_type LIKE ?"
+            params.append(f"%{vtype}%")
         company = filters.get("company")
         if company:
-            df = df[df[COL_COMPANY].str.contains(company, na=False, case=False)]
+            query += " AND company LIKE ?"
+            params.append(f"%{company}%")
         max_price = filters.get("max_price")
         if max_price is not None:
-            df = df[df[COL_PRICE] <= float(max_price)]
+            query += " AND price <= ?"
+            params.append(float(max_price))
         min_price = filters.get("min_price")
         if min_price is not None:
-            df = df[df[COL_PRICE] >= float(min_price)]
+            query += " AND price >= ?"
+            params.append(float(min_price))
 
-    df = df.dropna(subset=[COL_PRICE]).sort_values(COL_PRICE).reset_index(drop=True)
+    query += " ORDER BY price"
+    rows = conn.execute(query, params).fetchall()
 
-    if df.empty:
+    if not rows:
         return []
-    if len(df) <= count:
-        return [
-            {k: _clean_val(v) for k, v in _vehicle_to_dict(df.iloc[i]).items()}
-            for i in range(len(df))
-        ]
+    if len(rows) <= count:
+        return [_motor_to_dict(r) for r in rows]
 
-    # Evenly spaced indices: 0, ..., len-1  → cheapest + spread + most expensive
-    step = (len(df) - 1) / (count - 1)
+    step    = (len(rows) - 1) / (count - 1)
     indices = sorted({round(i * step) for i in range(count)})
-    return [
-        {k: _clean_val(v) for k, v in _vehicle_to_dict(df.iloc[i]).items()}
-        for i in indices
-    ]
+    return [_motor_to_dict(rows[i]) for i in indices]
 
+
+def get_similar_vehicles(vehicle: dict, count: int = 3) -> List[dict]:
+    """Return up to `count` vehicles of the same type within ±40% of the given price,
+    excluding the vehicle itself."""
+    price    = vehicle.get("price")
+    vtype    = vehicle.get("type")
+    name_en  = vehicle.get("name_en", "")
+    if not price or not vtype:
+        return []
+    conn = _get_conn()
+    rows = conn.execute(
+        "SELECT * FROM motors "
+        "WHERE is_available = 1 AND price IS NOT NULL "
+        "  AND moto_type LIKE ? "
+        "  AND price BETWEEN ? AND ? "
+        "  AND LOWER(english_name) != LOWER(?) "
+        "ORDER BY ABS(price - ?) "
+        "LIMIT ?",
+        (f"%{vtype}%", price * 0.6, price * 1.4, name_en, price, count),
+    ).fetchall()
+    return [_motor_to_dict(r) for r in rows]
+
+
+# ---------------------------------------------------------------------------
+# Installment calculation (rates from instalments table, not per-vehicle)
+# ---------------------------------------------------------------------------
+
+def calculate_custom_installment(vehicle: dict, months: int, down_payment: float = 0) -> dict:
+    """Calculate monthly installment using the range-based instalments table.
+
+    Rates are universal (not per vehicle):
+      total_interest = price * (percentage_per_month / 100) * months
+
+    Args:
+        vehicle:      vehicle dict with at least 'price', 'name_ar', 'name_en'
+        months:       number of installment months requested
+        down_payment: down payment amount in EGP (default 0 = no down payment)
+    """
+    from services.db_service import get_installment_rate
+
+    price   = vehicle.get("price")
+    name_en = vehicle.get("name_en") or ""
+
+    if not price:
+        return {"error": "سعر المنتج غير متوفر", "name_ar": vehicle.get("name_ar"), "name_en": name_en}
+
+    down_pct  = (down_payment / price * 100) if down_payment and price else 0
+    rate_data = get_installment_rate(months, down_pct)
+
+    if not rate_data:
+        return {
+            "error": "لا تتوفر خطة تقسيط لهذا الخيار",
+            "name_ar": vehicle.get("name_ar"),
+            "name_en": name_en,
+        }
+
+    monthly_rate_pct = rate_data["percentage_per_month"]
+    financed_amount  = price - down_payment          # interest applies only to financed amount
+    total_interest   = financed_amount * monthly_rate_pct / 100 * months
+    total_repayment  = price + total_interest        # down_payment + financed + interest
+    monthly_payment  = (financed_amount + total_interest) / months
+
+    return {
+        "name_ar":           vehicle.get("name_ar"),
+        "name_en":           name_en,
+        "price":             price,
+        "down_payment":      round(down_payment),
+        "financed_amount":   round(financed_amount),
+        "months":            months,
+        "interest_rate_pct": round(monthly_rate_pct * months, 2),
+        "total_interest":    round(total_interest),
+        "total_repayment":   round(total_repayment),
+        "monthly_payment":   round(monthly_payment),
+    }
+
+
+# ---------------------------------------------------------------------------
+# Formatting helpers
+# ---------------------------------------------------------------------------
 
 def _fmt_price(val) -> str:
     try:
@@ -239,11 +294,9 @@ def _fmt_price(val) -> str:
 
 
 def _safe(val, default="غير محدد") -> str:
-    """Return string for val, or default for None/NaN."""
     if val is None:
         return default
     try:
-        import math
         if math.isnan(float(val)):
             return default
     except (TypeError, ValueError):
@@ -252,11 +305,9 @@ def _safe(val, default="غير محدد") -> str:
 
 
 def _has_value(val) -> bool:
-    """True only for non-None, non-NaN values."""
     if val is None:
         return False
     try:
-        import math
         return not math.isnan(float(val))
     except (TypeError, ValueError):
         return bool(val)
@@ -264,17 +315,13 @@ def _has_value(val) -> bool:
 
 def format_vehicle_arabic(v: dict) -> str:
     lines = [
-        f"* {_safe(v['name_ar'])} ({_safe(v['name_en'])})",
-        f"   الشركة: {_safe(v['company'])} | الوكيل: {_safe(v['agent'])}",
-        f"   النوع: {_safe(v['type'])} | اللون: {_safe(v['color'])}",
-        f"   السعر: {_fmt_price(v['price'])}",
-        f"   المحرك: {_safe(v['engine_cc'])} | {_safe(v['engine_type'])} | {_safe(v['transmission'])}",
-        f"   السرعة القصوى: {_safe(v['max_speed'])}",
+        f"* {_safe(v.get('name_ar'))} ({_safe(v.get('name_en'))})",
+        f"   الشركة: {_safe(v.get('company'))} | الوكيل: {_safe(v.get('agent'))}",
+        f"   النوع: {_safe(v.get('type'))} | اللون: {_safe(v.get('color'))}",
+        f"   السعر: {_fmt_price(v.get('price'))}",
+        f"   المحرك: {_safe(v.get('engine_cc'))} | {_safe(v.get('engine_type'))} | {_safe(v.get('transmission'))}",
+        f"   السرعة القصوى: {_safe(v.get('max_speed'))}",
     ]
-    if _has_value(v.get("min_down")):
-        lines.append(
-            f"   أقل مقدم: {_fmt_price(v['min_down'])} | قسط سنة: {_fmt_price(v['installment_12'])}/شهر"
-        )
     if _has_value(v.get("notes")):
         lines.append(f"   ملاحظات: {v['notes']}")
     return "\n".join(lines)

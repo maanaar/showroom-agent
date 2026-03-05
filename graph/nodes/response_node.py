@@ -6,6 +6,7 @@ from langchain_core.messages import HumanMessage, SystemMessage, AIMessage
 from graph.state import AgentState
 from llm.gemini import get_gemini
 from services.data_service import _fmt_price, _safe, _has_value
+from services.db_service import update_client_turn
 
 SHOWROOM_INFO = """معلومات المعرض:
 - الاسم: آي بايكو (ibyco) للموتوسيكلات والإكسسوارات
@@ -24,7 +25,7 @@ SYSTEM_PROMPT = """أنت مساعد مبيعات محترف في معرض "آي
 """ + SHOWROOM_INFO + """
 
 معلومات مهمة:
-- أنظمة التقسيط المتاحة: 6 أو 12 أو 18 أو 24 شهر بس. لو العميل سأل عن مدة تانية، وضحله إنها مش متاحة واقترحله الأقرب.
+- أنظمة التقسيط متاحة من 1 لحد 24 شهر. لو وصلتك بيانات تقسيط محسوبة، قدّمها مباشرة بدون أي تحفظات أو اعتذار.
 - الزيوت والاكسسوارات مش موجودة في الكتالوج الإلكتروني — وجّه العميل يزور المعرض أو يتصل للاستفسار.
 - لو حد سأل عن اسكوتر مناسب لسن صغير، اعتمد على حجم المحرك والسرعة القصوى (50cc/40كم-س للأطفال، 150cc+ للشباب).
 - لو سأل عن "أحدث موديل" اعرضله آخر المنتجات وأكدله إن المعرض بيحدّث الكتالوج باستمرار.
@@ -64,6 +65,13 @@ def _build_context(state: AgentState) -> str:
     product_type = state.get("product_type") or "motorcycle"
     vehicles = state.get("vehicles", [])
     lead = state.get("lead", {})
+    ask_clarification = state.get("ask_clarification")
+
+    # Clarification needed before we can calculate
+    if ask_clarification == "vehicle_name":
+        return "العميل يريد التقسيط لكن لم يحدد الموديل. اسأله عن الموديل أو المنتج اللي يريد التقسيط عليه."
+    if ask_clarification == "down_payment":
+        return "العميل يريد التقسيط لكن لم يذكر المقدم. اسأله عن مبلغ المقدم اللي هيدفعه."
 
     product_label = {"motorcycle": "موتوسيكلات", "scooter": "اسكوتر", "helmet": "خوذات"}.get(
         product_type, "منتجات"
@@ -79,6 +87,13 @@ def _build_context(state: AgentState) -> str:
             parts.append("قارن بين هذين المنتجين بشكل مفصل: السعر، المحرك، السرعة، التقسيط، والمميزات.")
         else:
             parts.append("لم يتم العثور على أي من المنتجين المطلوب مقارنتهما في الكتالوج.")
+    elif intent == "installment" and vehicles and vehicles[0].get("monthly_payment") is not None:
+        v = vehicles[0]
+        parts.append(f"حساب تقسيط {v.get('name_ar')} ({v.get('name_en')}) على {v.get('months')} شهر:")
+        parts.append(f"   سعر المنتج:    {_fmt_price(v.get('price'))}")
+        if v.get("down_payment"):
+            parts.append(f"   المقدم:        {_fmt_price(v.get('down_payment'))}")
+        parts.append(f"   القسط الشهري:  {_fmt_price(v.get('monthly_payment'))}/شهر")
     elif vehicles:
         parts.append(f"المتاح من {product_label} التي تطابق الطلب:")
         for v in vehicles:
@@ -130,6 +145,10 @@ def response_node(state: AgentState) -> dict:
 
     messages.append(HumanMessage(content=message))
 
+    # Gemini 2.0 Flash pricing via OpenRouter
+    _INPUT_COST_PER_M  = 0.10   # $ per 1M input tokens
+    _OUTPUT_COST_PER_M = 0.40   # $ per 1M output tokens
+
     usage = {}
     try:
         result = llm.invoke(messages)
@@ -137,17 +156,60 @@ def response_node(state: AgentState) -> dict:
         meta = getattr(result, "usage_metadata", None) or getattr(result, "response_metadata", {}).get("token_usage", {})
         if meta:
             usage = {
-                "input_tokens":  meta.get("input_tokens")  or meta.get("prompt_tokens", 0),
-                "output_tokens": meta.get("output_tokens") or meta.get("completion_tokens", 0),
-                "total_tokens":  meta.get("total_tokens", 0),
+                "input_tokens":    meta.get("input_tokens")  or meta.get("prompt_tokens", 0),
+                "output_tokens":   meta.get("output_tokens") or meta.get("completion_tokens", 0),
+                "total_tokens":    meta.get("total_tokens", 0),
+                "thinking_tokens": meta.get("output_token_details", {}).get("reasoning", 0),
             }
     except Exception as e:
         response_text = f"عذراً، حدث خطأ: {e}"
+
+    # Aggregate intent + response tokens and compute cost
+    intent_usage = state.get("intent_usage") or {}
+    total_input    = (intent_usage.get("input_tokens", 0)    + usage.get("input_tokens", 0))
+    total_output   = (intent_usage.get("output_tokens", 0)   + usage.get("output_tokens", 0))
+    total_thinking = (intent_usage.get("thinking_tokens", 0) + usage.get("thinking_tokens", 0))
+    total_all      = total_input + total_output
+    cost_usd = (total_input * _INPUT_COST_PER_M + total_output * _OUTPUT_COST_PER_M) / 1_000_000
+
+    print(
+        f"\n── Token usage ──────────────────────────────\n"
+        f"  Intent node  → in: {intent_usage.get('input_tokens', 0):>6} | "
+        f"out: {intent_usage.get('output_tokens', 0):>5} | "
+        f"think: {intent_usage.get('thinking_tokens', 0):>5}\n"
+        f"  Response node→ in: {usage.get('input_tokens', 0):>6} | "
+        f"out: {usage.get('output_tokens', 0):>5} | "
+        f"think: {usage.get('thinking_tokens', 0):>5}\n"
+        f"  TOTAL        → in: {total_input:>6} | out: {total_output:>5} | "
+        f"think: {total_thinking:>5} | all: {total_all:>6}\n"
+        f"  Cost         → ${cost_usd:.6f}\n"
+        f"─────────────────────────────────────────────"
+    )
+
+    usage["intent_input_tokens"]    = intent_usage.get("input_tokens", 0)
+    usage["intent_output_tokens"]   = intent_usage.get("output_tokens", 0)
+    usage["intent_thinking_tokens"] = intent_usage.get("thinking_tokens", 0)
+    usage["total_all_tokens"]       = total_all
+    usage["cost_usd"]               = round(cost_usd, 6)
 
     updated_history = list(history) + [
         {"role": "user", "content": message},
         {"role": "assistant", "content": response_text},
     ]
+
+    # Persist turn summary to DB
+    user_id = state.get("user_id", "unknown")
+    try:
+        update_client_turn(
+            phone_number=user_id,
+            user_message=message,
+            bot_response=response_text,
+            intent=intent,
+            filters=state.get("filters", {}),
+            lead=state.get("lead", {}),
+        )
+    except Exception:
+        pass  # never crash the response over a DB write
 
     booking_stage = state.get("booking_stage")
     lead = state.get("lead", {})

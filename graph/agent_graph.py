@@ -6,6 +6,7 @@ from graph.nodes.motorcycle_node import motorcycle_node
 from graph.nodes.scooter_node import scooter_node
 from graph.nodes.helmet_node import helmet_node
 from graph.nodes.complaint_node import complaint_node
+from graph.nodes.booking_node import booking_node
 from graph.nodes.compare_node import compare_node
 from graph.nodes.response_node import response_node
 
@@ -20,6 +21,9 @@ def _route_after_intent(state: AgentState) -> str:
 
     if intent == "complaint":
         return "complaint"
+
+    if intent == "booking":
+        return "booking"
 
     if intent == "compare":
         return "compare"
@@ -45,6 +49,7 @@ def build_graph():
     graph.add_node("scooter", scooter_node)
     graph.add_node("helmet", helmet_node)
     graph.add_node("complaint", complaint_node)
+    graph.add_node("booking", booking_node)
     graph.add_node("compare", compare_node)
     graph.add_node("response", response_node)
 
@@ -60,6 +65,7 @@ def build_graph():
             "scooter": "scooter",
             "helmet": "helmet",
             "complaint": "complaint",
+            "booking": "booking",
             "compare": "compare",
             "response": "response",
         },
@@ -70,6 +76,7 @@ def build_graph():
     graph.add_edge("scooter", "response")
     graph.add_edge("helmet", "response")
     graph.add_edge("complaint", "response")
+    graph.add_edge("booking", "response")
     graph.add_edge("compare", "response")
 
     # Response is terminal

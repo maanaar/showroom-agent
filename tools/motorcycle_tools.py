@@ -1,22 +1,13 @@
 import json
-import math
 from typing import Optional
 from langchain_core.tools import tool
-from services.data_service import get_vehicles, get_vehicle_by_name, get_catalog_summary
+from services.data_service import get_vehicles, get_vehicle_by_name, get_catalog_summary, calculate_custom_installment
 
 MOTO_TYPE = "موتوسيكل"
 
 
-def _clean(val):
-    """Convert NaN to None so JSON serialization works cleanly."""
-    if isinstance(val, float) and math.isnan(val):
-        return None
-    return val
-
-
 def _to_json(vehicles: list) -> str:
-    clean = [{k: _clean(v) for k, v in vehicle.items()} for vehicle in vehicles]
-    return json.dumps(clean, ensure_ascii=False)
+    return json.dumps(vehicles, ensure_ascii=False, default=str)
 
 
 @tool
@@ -37,8 +28,7 @@ def search_motorcycles(
         filters["company"] = company
     if transmission:
         filters["transmission"] = transmission
-    vehicles = get_vehicles(filters, limit=limit)
-    return _to_json(vehicles)
+    return _to_json(get_vehicles(filters, limit=limit))
 
 
 @tool
@@ -53,37 +43,47 @@ def motorcycle_details(vehicle_name: str) -> str:
 @tool
 def cheapest_motorcycles(limit: int = 3) -> str:
     """Get the cheapest available motorcycles sorted by price. Returns a JSON array."""
-    vehicles = get_vehicles({"type": MOTO_TYPE}, limit=limit, sort_by="price", ascending=True)
-    return _to_json(vehicles)
+    return _to_json(get_vehicles({"type": MOTO_TYPE}, limit=limit, sort_by="price", ascending=True))
 
 
 @tool
 def motorcycle_installments(vehicle_name: str) -> str:
-    """Get all installment plan options (6, 12, 18, 24 months) for a motorcycle. Returns JSON."""
+    """Get installment plan options (6, 12, 18, 24 months) for a motorcycle. Returns JSON."""
     v = get_vehicle_by_name(vehicle_name)
     if not v:
         return json.dumps({"error": "الموديل غير متوفر"}, ensure_ascii=False)
-    result = {
+
+    plans = {}
+    for months in (6, 12, 18, 24):
+        calc = calculate_custom_installment(v, months)
+        if "error" not in calc:
+            plans[str(months)] = {
+                "monthly_payment":   calc["monthly_payment"],
+                "total_repayment":   calc["total_repayment"],
+                "interest_rate_pct": calc["interest_rate_pct"],
+            }
+
+    return json.dumps({
         "name_ar": v["name_ar"],
         "name_en": v["name_en"],
-        "price": _clean(v["price"]),
-        "min_down": _clean(v["min_down"]),
-        "installment_6": _clean(v["installment_6"]),
-        "installment_12": _clean(v["installment_12"]),
-        "installment_18": _clean(v["installment_18"]),
-        "installment_24": _clean(v["installment_24"]),
-    }
-    return json.dumps(result, ensure_ascii=False)
+        "price":   v["price"],
+        "plans":   plans,
+    }, ensure_ascii=False, default=str)
 
 
 @tool
 def motorcycle_by_monthly_budget(max_monthly: float, months: int = 12, limit: int = 3) -> str:
-    """Find motorcycles that fit a monthly installment budget. months must be 6,12,18 or 24. Returns JSON."""
-    if months not in (6, 12, 18, 24):
-        return json.dumps({"error": "مدة التقسيط يجب أن تكون 6 أو 12 أو 18 أو 24 شهراً"}, ensure_ascii=False)
-    filters = {f"max_installment_{months}": max_monthly, "type": MOTO_TYPE}
-    vehicles = get_vehicles(filters, limit=limit, sort_by=f"installment_{months}", ascending=True)
-    return _to_json(vehicles)
+    """Find motorcycles that fit a monthly installment budget. Returns JSON."""
+    from services.db_service import get_installment_rate
+    rate_data = get_installment_rate(months, 0)
+    if not rate_data:
+        return json.dumps({"error": "لا تتوفر بيانات تقسيط لهذه المدة"}, ensure_ascii=False)
+
+    # monthly = price * (1 + rate_per_month/100 * months) / months
+    # → max_price = max_monthly * months / (1 + rate_per_month/100 * months)
+    rate = rate_data["percentage_per_month"]
+    max_price = max_monthly * months / (1 + rate / 100 * months)
+    return _to_json(get_vehicles({"type": MOTO_TYPE, "max_price": max_price}, limit=limit, sort_by="price", ascending=True))
 
 
 @tool
@@ -91,11 +91,10 @@ def motorcycle_catalog_summary() -> str:
     """Get a summary of all available motorcycles: total count, companies, price range. Returns JSON."""
     s = get_catalog_summary()
     moto_types = {k: v for k, v in s["types"].items() if MOTO_TYPE in k}
-    result = {
-        "total": s["total"],
-        "types": moto_types or s["types"],
+    return json.dumps({
+        "total":     s["total"],
+        "types":     moto_types or s["types"],
         "companies": s["companies"],
-        "price_min": _clean(s["price_min"]),
-        "price_max": _clean(s["price_max"]),
-    }
-    return json.dumps(result, ensure_ascii=False)
+        "price_min": s["price_min"],
+        "price_max": s["price_max"],
+    }, ensure_ascii=False, default=str)

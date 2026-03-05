@@ -21,8 +21,10 @@ SYSTEM_PROMPT = """أنت مساعد ذكي في معرض "أيمن بدر" لل
     "company": "<اسم الشركة أو null>",
     "vehicle_name": "<اسم الموديل الأول أو null>",
     "vehicle_name_2": "<اسم الموديل الثاني للمقارنة أو null>",
-    "max_installment_12": <رقم أو null>,
-    "transmission": "يدوي | أوتوماتيك | null"
+    "months": <عدد الأشهر المطلوبة للتقسيط كرقم أو null — مثلاً 9 أو 36>,
+    "max_installment_12": <أقصى قسط شهري مقبول كرقم أو null>,
+    "transmission": "يدوي | أوتوماتيك | null",
+    "down_payment": <مبلغ المقدم بالجنيه كرقم أو null — مثلاً 5000>
   },
   "lead_info": {
     "name": "<الاسم أو null>",
@@ -64,11 +66,20 @@ def intent_node(state: AgentState) -> dict:
         HumanMessage(content=message),
     ]
 
+    intent_usage = {}
     try:
         response = llm.invoke(messages)
         raw = response.content.strip()
         match = re.search(r"\{.*\}", raw, re.DOTALL)
         data = json.loads(match.group()) if match else {}
+        meta = getattr(response, "usage_metadata", None) or getattr(response, "response_metadata", {}).get("token_usage", {})
+        if meta:
+            intent_usage = {
+                "input_tokens":    meta.get("input_tokens")  or meta.get("prompt_tokens", 0),
+                "output_tokens":   meta.get("output_tokens") or meta.get("completion_tokens", 0),
+                "total_tokens":    meta.get("total_tokens", 0),
+                "thinking_tokens": meta.get("output_token_details", {}).get("reasoning", 0),
+            }
     except Exception:
         data = {}
 
@@ -92,4 +103,5 @@ def intent_node(state: AgentState) -> dict:
         "product_type": product_type,
         "filters": filters,
         "lead": existing_lead,
+        "intent_usage": intent_usage,
     }
