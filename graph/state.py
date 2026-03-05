@@ -14,6 +14,7 @@ class AgentState(TypedDict):
     response: Optional[str]                      # final response to send back
     recommendations: List[str]                   # suggested follow-up questions
     complaint_saved: Optional[bool]              # True if complaint was persisted to DB
+    booking_saved: Optional[bool]                # True if booking was persisted to DB
     ask_clarification: Optional[str]             # "down_payment" | "vehicle_name" | None — ask user for missing info
     intent_usage: Optional[Dict[str, int]]       # token counts from intent_node LLM call
     usage: Optional[Dict[str, int]]              # token counts from response_node LLM call

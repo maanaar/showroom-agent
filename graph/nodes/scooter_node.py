@@ -7,9 +7,6 @@ from graph.state import AgentState
 from services.data_service import get_price_spread, get_vehicle_by_name, calculate_custom_installment, get_similar_vehicles
 from tools.scooter_tools import (
     search_scooters,
-    scooter_details,
-    cheapest_scooters,
-    scooter_installments,
     scooter_by_monthly_budget,
 )
 
@@ -51,10 +48,12 @@ def scooter_node(state: AgentState) -> dict:
             calc = calculate_custom_installment(v, months, down_payment=down_payment)
             vehicles = [calc]
         elif v:
-            raw = scooter_installments.invoke({"vehicle_name": v["name_en"]})
-            result = json.loads(raw)
-            if isinstance(result, dict) and "error" not in result:
-                vehicles = [result]
+            # No specific months — show all standard plans with the actual down_payment
+            vehicles = [
+                c for m in (6, 12, 18, 24)
+                for c in [calculate_custom_installment(v, m, down_payment=down_payment)]
+                if "error" not in c
+            ]
 
     elif intent == "installment" and filters.get("max_installment_12"):
         raw = scooter_by_monthly_budget.invoke({

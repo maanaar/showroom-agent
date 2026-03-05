@@ -104,4 +104,5 @@ def intent_node(state: AgentState) -> dict:
         "filters": filters,
         "lead": existing_lead,
         "intent_usage": intent_usage,
+        "ask_clarification": None,   # reset each turn; nodes set it if needed
     }

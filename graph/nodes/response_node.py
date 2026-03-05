@@ -89,11 +89,13 @@ def _build_context(state: AgentState) -> str:
             parts.append("لم يتم العثور على أي من المنتجين المطلوب مقارنتهما في الكتالوج.")
     elif intent == "installment" and vehicles and vehicles[0].get("monthly_payment") is not None:
         v = vehicles[0]
-        parts.append(f"حساب تقسيط {v.get('name_ar')} ({v.get('name_en')}) على {v.get('months')} شهر:")
-        parts.append(f"   سعر المنتج:    {_fmt_price(v.get('price'))}")
+        parts.append(f"خيارات تقسيط {v.get('name_ar')} ({v.get('name_en')}):")
+        parts.append(f"   سعر المنتج:  {_fmt_price(v.get('price'))}")
         if v.get("down_payment"):
-            parts.append(f"   المقدم:        {_fmt_price(v.get('down_payment'))}")
-        parts.append(f"   القسط الشهري:  {_fmt_price(v.get('monthly_payment'))}/شهر")
+            parts.append(f"   المقدم:      {_fmt_price(v.get('down_payment'))}")
+        for plan in vehicles:
+            if plan.get("monthly_payment") is not None:
+                parts.append(f"   {plan['months']} شهر  →  {_fmt_price(plan['monthly_payment'])}/شهر")
     elif vehicles:
         parts.append(f"المتاح من {product_label} التي تطابق الطلب:")
         for v in vehicles:
