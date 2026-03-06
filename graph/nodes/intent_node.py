@@ -8,53 +8,54 @@ from langchain_core.messages import HumanMessage, SystemMessage
 from graph.state import AgentState
 from llm.gemini import get_gemini
 
-SYSTEM_PROMPT = """أنت مساعد ذكي في معرض "أيمن بدر" للموتوسيكلات والاكسسوارات.
-مهمتك تحليل رسالة العميل واستخراج النية والمعلومات المطلوبة.
+SYSTEM_PROMPT = """You are an intelligent assistant for "ibyco" motorcycle and accessories showroom.
+Your task is to analyse the customer's message and extract intent and structured information.
+The customer may write in Arabic (Egyptian dialect), English, or mixed — you must understand all.
 
-أرجع JSON فقط (بدون أي نص إضافي) بالشكل التالي:
+Return JSON only (no extra text) in this format:
 {
   "intent": "browse | filter | details | installment | compare | booking | complaint | greeting | other",
   "product_type": "motorcycle | scooter | helmet | null",
   "filters": {
-    "max_price": <رقم أو null>,
-    "min_price": <رقم أو null>,
-    "company": "<اسم الشركة أو null>",
-    "vehicle_name": "<اسم الموديل الأول أو null>",
-    "vehicle_name_2": "<اسم الموديل الثاني للمقارنة أو null>",
-    "months": <عدد الأشهر المطلوبة للتقسيط كرقم أو null — مثلاً 9 أو 36>,
-    "max_installment_12": <أقصى قسط شهري مقبول كرقم أو null>,
+    "max_price": <number or null>,
+    "min_price": <number or null>,
+    "company": "<brand name or null>",
+    "vehicle_name": "<first model name or null>",
+    "vehicle_name_2": "<second model name for comparison or null>",
+    "months": <number of installment months or null — e.g. 9 or 36>,
+    "max_installment_12": <max acceptable monthly payment as number or null>,
     "transmission": "يدوي | أوتوماتيك | null",
-    "down_payment": <مبلغ المقدم بالجنيه كرقم أو null — مثلاً 5000>
+    "down_payment": <down payment amount in EGP as number or null — e.g. 5000>
   },
   "lead_info": {
-    "name": "<الاسم أو null>",
-    "phone": "<رقم الهاتف أو null>"
+    "name": "<customer name or null>",
+    "phone": "<phone number or null>"
   }
 }
 
-تعريف النوايا:
-- browse: يريد تصفح المنتجات عموماً أو يسأل "عندكم ايه" أو "ايه الموجود" أو "آخر حاجة نزلت" أو "أحدث موديل" أو "فئات الأسعار" أو "نطاق الأسعار" بدون تحديد رقم
-- filter: يريد تصفية حسب سعر محدد بالأرقام أو شركة أو قسط أو يحدد معايير معينة (مثلاً "مناسب للسن الصغير" أو "أرخص حاجة" أو "بميزانية X جنيه")
-- details: يسأل عن موديل بعينه بالاسم تحديداً (مثل "كلمني عن jet x" أو "مواصفات هاوجي k4")
-- installment: يسأل عن التقسيط أو طرق الدفع أو الأقساط
-- compare: يريد مقارنة بين موديلين (استخرج vehicle_name و vehicle_name_2)
-- booking: يريد الحجز أو الشراء أو يقول "عايز أشتري"
-- complaint: يشتكي من منتج أو خدمة أو تجربة سيئة
-- greeting: تحية أو كلام عام
-- other: أسئلة عامة ليس لها علاقة مباشرة بمنتج محدد (مثل: عروض، مواعيد، فروع، زيوت، اكسسوارات، خدمة ما بعد البيع)
+Intent definitions:
+- browse: wants to see products generally, asks "what do you have", "what's available", "latest model", "price ranges" without specifying a number
+- filter: wants to filter by a specific price number, brand, installment, or criteria (e.g. "suitable for kids", "cheapest", "budget of X EGP")
+- details: asks about a specific model BY NAME (e.g. "tell me about jet x", "specs of haojue k4")
+- installment: asks about installment plans, payment methods, or monthly payments
+- compare: wants to compare two models (extract vehicle_name and vehicle_name_2)
+- booking: wants to book an appointment, visit, or buy (e.g. "I want to buy", "book a test ride")
+- complaint: complaining about a product, service, or bad experience
+- greeting: general greeting or small talk
+- other: general questions not directly about a specific product (e.g. offers, working hours, branches, oils, accessories, after-sales service)
 
-قواعد مهمة:
-- إذا ذكر العميل منتج غير متوفر في الكتالوج (زيوت، اكسسوارات، قطع غيار) → intent = "other" حتى لو ذكر اسم موديل
-- إذا سأل عن عروض أو تخفيضات بدون ذكر منتج → intent = "other"
-- إذا سأل عن مواعيد أو فروع أو عنوان → intent = "other"
-- "آخر حاجة نزلت" أو "أحدث موديل" بدون ذكر اسم = browse وليس details
-- details فقط لما يذكر اسم الموديل صراحة
+Important rules:
+- If the customer mentions a product NOT in the catalog (oils, accessories, spare parts) → intent = "other" even if a model name is mentioned
+- If asking about offers/discounts without mentioning a product → intent = "other"
+- If asking about working hours, branches, or address → intent = "other"
+- "latest model" or "newest release" without a specific name = browse, NOT details
+- details ONLY when the model name is explicitly mentioned
 
-تعريف نوع المنتج:
-- motorcycle: موتوسيكل / دراجة نارية
-- scooter: اسكوتر / سكوتر
-- helmet: خوذة / هيلمت
-- null: غير محدد (افتراضي: motorcycle)"""
+Product type definitions:
+- motorcycle: موتوسيكل / motorbike / دراجة نارية
+- scooter: اسكوتر / سكوتر / scooter
+- helmet: خوذة / هيلمت / helmet
+- null: unspecified (default: motorcycle)"""
 
 
 def intent_node(state: AgentState) -> dict:

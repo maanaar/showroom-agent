@@ -1,0 +1,22 @@
+{
+  "permissions": {
+    "allow": [
+      "Bash(venv/Scripts/python tests/show_replies.py)",
+      "Bash(PYTHONPATH=. venv/Scripts/python tests/show_replies.py)",
+      "Bash(venv/Scripts/pip install langchain-google-genai)",
+      "Bash(PYTHONPATH=. venv/Scripts/python -c \":*)",
+      "Bash(venv/Scripts/pip show langchain-google-genai google-ai-generativelanguage)",
+      "Bash(venv/Scripts/pip install \"langchain-google-genai==2.0.10\")",
+      "Bash(venv/Scripts/pip show langchain-openai)",
+      "Bash(venv/Scripts/pip install langchain-openai)",
+      "Bash(python -c \":*)",
+      "Bash(pip install openpyxl -q)",
+      "Bash(python -c \"import sys; sys.stdout.buffer.write\\(sys.stdin.buffer.read\\(\\)\\)\")",
+      "Bash(python:*)",
+      "Bash(pip install langgraph)",
+      "Bash(pip install langchain-openai)",
+      "Bash(pip show sqlalchemy)",
+      "Bash(pip install sqlalchemy)"
+    ]
+  }
+}

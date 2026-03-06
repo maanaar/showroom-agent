@@ -8,8 +8,8 @@ import sqlite3
 from pathlib import Path
 from datetime import datetime
 
-DB_PATH = Path(__file__).parent.parent.parent / "instance" / "Ibyco.db"
-SCHEMA_PATH = Path(__file__).parent.parent.parent / "schema.sql"
+DB_PATH = Path(__file__).parent.parent / "Ibyco" / "instance" / "Ibyco.db"
+SCHEMA_PATH = Path(__file__).parent.parent / "Ibyco" / "schema.sql"
 
 _conn: sqlite3.Connection = None
 
